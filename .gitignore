@@ -1,0 +1,19 @@
+# Colcon / ROS 2 build artifacts
+build/
+install/
+log/
+
+# Editor / IDE
+.vs/
+.vscode/
+*.user
+
+# Build artifacts
+*.o
+*.so
+*.so.*
+*.a
+
+# Python cache
+__pycache__/
+*.pyc

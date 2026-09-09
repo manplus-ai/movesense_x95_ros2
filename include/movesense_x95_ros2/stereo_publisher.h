@@ -1,0 +1,66 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Humanplus Intelligent Robotics Technology Co.,Ltd. All rights reserved.
+
+#pragma once
+
+#include "movesense_x95_ros2/common.h"
+#include "movesense_x95_ros2/thread_safe_queue.h"
+
+#include <atomic>
+#include <rclcpp/rclcpp.hpp>
+#include <sensor_msgs/msg/camera_info.hpp>
+#include <sensor_msgs/msg/image.hpp>
+#include <string>
+#include <thread>
+#include <vision_msgs/msg/detection2_d_array.hpp>
+
+namespace movesense_x95_ros2 {
+
+class StereoPublisher {
+public:
+    StereoPublisher();
+    ~StereoPublisher();
+
+    bool Init(rclcpp::Node::SharedPtr node, StereoFrameQueue* frameQueue, const std::string& cam0Topic, const std::string& cam1Topic,
+        const std::string& colorTopic, const std::string& depthTopic, const std::string& detTopic, const std::string& cam0FrameId,
+        const std::string& cam1FrameId, const std::string& colorFrameId, const std::string& depthFrameId, const std::string& detFrameId,
+        int queueSize, bool enableStereo, bool enableColor, bool enableDetection);
+    void Shutdown();
+
+    void SetDepthCameraInfo(rclcpp::Node::SharedPtr node, const std::string& topic, const sensor_msgs::msg::CameraInfo& info, int queueSize);
+    void SetColorCameraInfo(rclcpp::Node::SharedPtr node, const std::string& topic, const sensor_msgs::msg::CameraInfo& info, int queueSize);
+
+private:
+    void Loop();
+    rclcpp::Time StampFromPts(uint64_t ptsUs) const;
+    void PublishOne(const rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr& pub, const PlaneData& img, const std::string& frameId);
+    void PublishColor(const PlaneData& color);
+    void PublishDepth(const PlaneData& depth);
+    void PublishDetections(const PlaneData& seg);
+
+    StereoFrameQueue* m_frameQueue = nullptr;
+    rclcpp::Clock::SharedPtr m_clock;
+    rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr m_cam0Pub;
+    rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr m_cam1Pub;
+    rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr m_colorPub;
+    rclcpp::Publisher<sensor_msgs::msg::CameraInfo>::SharedPtr m_colorInfoPub;
+    rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr m_depthPub;
+    rclcpp::Publisher<sensor_msgs::msg::CameraInfo>::SharedPtr m_depthInfoPub;
+    rclcpp::Publisher<vision_msgs::msg::Detection2DArray>::SharedPtr m_detPub;
+    sensor_msgs::msg::CameraInfo m_depthInfo;
+    sensor_msgs::msg::CameraInfo m_colorInfo;
+    bool m_hasDepthInfo = false;
+    bool m_hasColorInfo = false;
+    bool m_stereoEnabled = false;
+    bool m_colorEnabled = false;
+    bool m_detEnabled = true;
+    std::string m_cam0FrameId = "movesense_infra2_optical_frame";
+    std::string m_cam1FrameId = "movesense_infra1_optical_frame";
+    std::string m_colorFrameId = "movesense_color_optical_frame";
+    std::string m_depthFrameId = "movesense_infra2_optical_frame";
+    std::string m_detFrameId = "movesense_color_optical_frame";
+    std::atomic<bool> m_running { false };
+    std::thread m_thread;
+};
+
+} // namespace movesense_x95_ros2
