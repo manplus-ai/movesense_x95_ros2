@@ -77,6 +77,40 @@ ARGS = [
     ('color_frame_id', 'movesense_color_optical_frame', str),
     ('det_frame_id', 'movesense_color_optical_frame', str),
     ('imu_frame_id', 'movesense_imu_frame', str),
+    # roi: crop window per stream, cut on the camera before sending (depth cannot be cropped).
+    # Coordinates are 0-based pixels in that stream's current output size (after downsampling):
+    #   window = [x1,x2) x [y1,y2), x1<x2, y1<y2, at least 16x16, all four values even.
+    # Needs camera firmware with ROI support; an enabled ROI the camera rejects stops the node.
+    ('roi_left_raw_enable', 'false', bool),
+    ('roi_left_raw_x1', '0', int),
+    ('roi_left_raw_y1', '0', int),
+    ('roi_left_raw_x2', '0', int),
+    ('roi_left_raw_y2', '0', int),
+    ('roi_right_raw_enable', 'false', bool),
+    ('roi_right_raw_x1', '0', int),
+    ('roi_right_raw_y1', '0', int),
+    ('roi_right_raw_x2', '0', int),
+    ('roi_right_raw_y2', '0', int),
+    ('roi_color_raw_enable', 'false', bool),
+    ('roi_color_raw_x1', '0', int),
+    ('roi_color_raw_y1', '0', int),
+    ('roi_color_raw_x2', '0', int),
+    ('roi_color_raw_y2', '0', int),
+    ('roi_left_rect_enable', 'false', bool),
+    ('roi_left_rect_x1', '0', int),
+    ('roi_left_rect_y1', '0', int),
+    ('roi_left_rect_x2', '0', int),
+    ('roi_left_rect_y2', '0', int),
+    ('roi_right_rect_enable', 'false', bool),
+    ('roi_right_rect_x1', '0', int),
+    ('roi_right_rect_y1', '0', int),
+    ('roi_right_rect_x2', '0', int),
+    ('roi_right_rect_y2', '0', int),
+    ('roi_color_rect_enable', 'false', bool),
+    ('roi_color_rect_x1', '0', int),
+    ('roi_color_rect_y1', '0', int),
+    ('roi_color_rect_x2', '0', int),
+    ('roi_color_rect_y2', '0', int),
 ]
 
 
