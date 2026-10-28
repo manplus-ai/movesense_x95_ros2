@@ -2,7 +2,7 @@
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
   <name>movesense_x95_ros2</name>
-  <version>0.1.1</version>
+  <version>0.5.2</version>
   <description>ROS 2 (Humble) driver for the MoveSense X95-series stereo depth camera (stereo / depth / color / IMU / YOLO detections).</description>
 
   <maintainer email="legal@manplus-ai.com">Humanplus</maintainer>
@@ -11,6 +11,7 @@
   <buildtool_depend>ament_cmake</buildtool_depend>
 
   <depend>rclcpp</depend>
+  <depend>rcl_interfaces</depend>
   <depend>sensor_msgs</depend>
   <depend>std_msgs</depend>
   <depend>vision_msgs</depend>
@@ -27,5 +28,6 @@
 
   <export>
     <build_type>ament_cmake</build_type>
+    <movesense_release_version>0.5.2.20261028</movesense_release_version>
   </export>
 </package>

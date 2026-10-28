@@ -3,8 +3,10 @@
 
 #include "movesense_x95_ros2/stereo_publisher.h"
 
-#include "movesense_x95_ros2/seg_result.h"
+#include "movesense_x95/seg_result.h"
 
+#include <cmath>
+#include <cstring>
 #include <opencv2/core.hpp>
 #include <opencv2/imgproc.hpp>
 #include <string>
@@ -23,10 +25,10 @@ StereoPublisher::~StereoPublisher() {}
 bool StereoPublisher::Init(rclcpp::Node::SharedPtr node, StereoFrameQueue* frameQueue, const std::string& cam0Topic, const std::string& cam1Topic,
     const std::string& colorTopic, const std::string& depthTopic, const std::string& detTopic, const std::string& cam0FrameId,
     const std::string& cam1FrameId, const std::string& colorFrameId, const std::string& depthFrameId, const std::string& detFrameId, int queueSize,
-    bool enableStereo, bool enableColor, bool enableDetection)
+    bool enableStereo, bool enableColor, bool enableDetection, bool enableDepth)
 {
-    if (node == nullptr || frameQueue == nullptr) {
-        RCLCPP_ERROR(Logger(), "[StereoPublisher] Init null argument");
+    if (node == nullptr || frameQueue == nullptr || queueSize <= 0 || m_running.load() || m_thread.joinable()) {
+        RCLCPP_ERROR(Logger(), "[StereoPublisher] Init rejected invalid argument or active publisher");
         return false;
     }
 
@@ -39,6 +41,7 @@ bool StereoPublisher::Init(rclcpp::Node::SharedPtr node, StereoFrameQueue* frame
     m_detFrameId = detFrameId;
     m_stereoEnabled = enableStereo;
     m_colorEnabled = enableColor;
+    m_depthEnabled = enableDepth;
     m_detEnabled = enableDetection;
 
     const size_t qosDepth = queueSize < 1 ? 1 : static_cast<size_t>(queueSize);
@@ -48,7 +51,12 @@ bool StereoPublisher::Init(rclcpp::Node::SharedPtr node, StereoFrameQueue* frame
         m_cam0Pub = node->create_publisher<sensor_msgs::msg::Image>(cam0Topic, sensorQos);
         m_cam1Pub = node->create_publisher<sensor_msgs::msg::Image>(cam1Topic, sensorQos);
     }
-    m_depthPub = node->create_publisher<sensor_msgs::msg::Image>(depthTopic, sensorQos);
+    if (m_depthEnabled) {
+        m_depthPub = node->create_publisher<sensor_msgs::msg::Image>(depthTopic, sensorQos);
+    } else {
+        m_depthInfoPub.reset();
+        m_hasDepthInfo = false;
+    }
     if (m_colorEnabled) {
         m_colorPub = node->create_publisher<sensor_msgs::msg::Image>(colorTopic, sensorQos);
     }
@@ -65,10 +73,52 @@ bool StereoPublisher::Init(rclcpp::Node::SharedPtr node, StereoFrameQueue* frame
 void StereoPublisher::Shutdown()
 {
     m_running.store(false);
-    m_frameQueue->Stop();
+    if (m_frameQueue != nullptr) {
+        m_frameQueue->Stop();
+    }
 
     if (m_thread.joinable()) {
         m_thread.join();
+    }
+    m_frameQueue = nullptr;
+    m_cam0Pub.reset();
+    m_cam1Pub.reset();
+    m_colorPub.reset();
+    m_colorInfoPub.reset();
+    m_depthPub.reset();
+    m_depthInfoPub.reset();
+    m_detPub.reset();
+    m_clock.reset();
+    m_hasDepthInfo = false;
+    m_hasColorInfo = false;
+}
+
+bool StereoPublisher::SetDepthUnitMm(double unitMm)
+{
+    if (!std::isfinite(unitMm) || unitMm <= 0.0 || m_running.load() || m_thread.joinable()) {
+        RCLCPP_ERROR(Logger(), "[StereoPublisher] Invalid depth unit or active publisher");
+        return false;
+    }
+
+    m_depthUnitMm = unitMm;
+    return true;
+}
+
+void StereoPublisher::SetImageGeometry(const CameraConfig& cfg, bool isPassive)
+{
+    if (m_running.load() || m_thread.joinable()) {
+        RCLCPP_ERROR(Logger(), "[StereoPublisher] Image geometry cannot change while publishing");
+        return;
+    }
+
+    const RoiConfig& color = cfg.roi[5];
+    MakeImageGeometry(cfg.colorWidth, cfg.colorHeight, color.enable, color.x1, color.y1, color.x2, color.y2, m_colorGeometry);
+    m_detectionSourceRight = isPassive;
+    if (isPassive) {
+        const RoiConfig& right = cfg.roi[4];
+        MakeImageGeometry(cfg.stereoWidth, cfg.stereoHeight, right.enable, right.x1, right.y1, right.x2, right.y2, m_detectionGeometry);
+    } else {
+        m_detectionGeometry = m_colorGeometry;
     }
 }
 
@@ -91,7 +141,7 @@ void StereoPublisher::SetColorCameraInfo(
 rclcpp::Time StereoPublisher::StampFromPts(uint64_t ptsUs) const
 {
     if (ptsUs == 0) {
-        return m_clock->now();
+        return rclcpp::Time(0, 0, RCL_ROS_TIME);
     }
 
     return rclcpp::Time(static_cast<int64_t>(ptsUs) * 1000, RCL_ROS_TIME);
@@ -99,7 +149,7 @@ rclcpp::Time StereoPublisher::StampFromPts(uint64_t ptsUs) const
 
 void StereoPublisher::PublishOne(const rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr& pub, const PlaneData& img, const std::string& frameId)
 {
-    if (!img.valid) {
+    if (!img.valid || img.ptsUs == 0) {
         return;
     }
 
@@ -141,7 +191,8 @@ void StereoPublisher::PublishOne(const rclcpp::Publisher<sensor_msgs::msg::Image
 
 void StereoPublisher::PublishColor(const PlaneData& color)
 {
-    if (!m_colorEnabled || !color.valid) {
+    if (!m_colorEnabled || !color.valid || color.ptsUs == 0 || color.width == 0 || color.height == 0 || color.width % 2 != 0 ||
+        color.height % 2 != 0) {
         return;
     }
 
@@ -168,20 +219,28 @@ void StereoPublisher::PublishColor(const PlaneData& color)
     m_colorPub->publish(msg);
 
     if (m_hasColorInfo) {
-        m_colorInfo.header.stamp = msg.header.stamp;
-        m_colorInfoPub->publish(m_colorInfo);
+        sensor_msgs::msg::CameraInfo info = m_colorInfo;
+        if (info.width == m_colorGeometry.fullWidth && info.height == m_colorGeometry.fullHeight &&
+            AdjustCameraModel(m_colorGeometry, msg.width, msg.height, info.k.data(), info.p.data())) {
+            info.header.stamp = msg.header.stamp;
+            info.width = msg.width;
+            info.height = msg.height;
+            info.roi = sensor_msgs::msg::RegionOfInterest();
+            m_colorInfoPub->publish(info);
+        } else {
+            RCLCPP_WARN_THROTTLE(Logger(), *m_clock, 5000, "[StereoPublisher] Color camera_info does not match image geometry");
+        }
     }
 }
 
 void StereoPublisher::PublishDepth(const PlaneData& depth)
 {
-    if (!depth.valid) {
+    if (!m_depthEnabled || !depth.valid || depth.ptsUs == 0) {
         return;
     }
 
-    const size_t need = static_cast<size_t>(depth.width) * depth.height * 2;
-
-    if (depth.data.size() < need) {
+    size_t need = 0;
+    if (!ImageByteSize(depth.width, depth.height, 2, need) || depth.data.size() < need) {
         return;
     }
 
@@ -193,49 +252,64 @@ void StereoPublisher::PublishDepth(const PlaneData& depth)
     msg.is_bigendian = 0;
     msg.encoding = "16UC1";
     msg.step = depth.width * 2;
-    msg.data.assign(depth.data.begin(), depth.data.begin() + need);
+    if (!ConvertDepthToMillimeters(depth.data, need / 2, m_depthUnitMm, msg.data)) {
+        return;
+    }
 
     m_depthPub->publish(msg);
 
     if (m_hasDepthInfo) {
-        m_depthInfo.header.stamp = msg.header.stamp;
-        m_depthInfoPub->publish(m_depthInfo);
+        if (m_depthInfo.width == msg.width && m_depthInfo.height == msg.height) {
+            m_depthInfo.header.stamp = msg.header.stamp;
+            m_depthInfoPub->publish(m_depthInfo);
+        } else {
+            RCLCPP_WARN_THROTTLE(Logger(), *m_clock, 5000, "[StereoPublisher] Depth camera_info does not match image dimensions");
+        }
     }
 }
 
-void StereoPublisher::PublishDetections(const PlaneData& seg)
+void StereoPublisher::PublishDetections(const PlaneData& seg, const PlaneData& source)
 {
-    if (!m_detEnabled || !seg.valid) {
+    if (!m_detEnabled || !seg.valid || seg.ptsUs == 0) {
         return;
     }
 
-    const int bytes = static_cast<int>(seg.data.size());
-
-    if (!SegValid(seg.data.data(), bytes)) {
+    if (!SegValid(seg.data.data(), seg.data.size())) {
         return;
     }
 
-    const SegHeader* r = reinterpret_cast<const SegHeader*>(seg.data.data());
-    const SegObject* dets = r->Detections();
+    SegHeader header;
+    std::memcpy(&header, seg.data.data(), sizeof(header));
+    ImageGeometry geometry;
+    if (!ResolveImageGeometry(m_detectionGeometry, source.valid ? source.width : 0, source.valid ? source.height : 0, geometry)) {
+        RCLCPP_WARN_THROTTLE(Logger(), *m_clock, 5000, "[StereoPublisher] Detection source image geometry is invalid");
+        return;
+    }
 
     vision_msgs::msg::Detection2DArray arr;
     arr.header.stamp = StampFromPts(seg.ptsUs);
     arr.header.frame_id = m_detFrameId;
-    arr.detections.reserve(r->detectionCount);
+    arr.detections.reserve(header.detectionCount);
 
-    for (uint16_t i = 0; i < r->detectionCount; ++i) {
-        const SegObject& o = dets[i];
+    for (uint16_t i = 0; i < header.detectionCount; ++i) {
+        SegObject object;
+        std::memcpy(&object, seg.data.data() + header.detectionsOffset + static_cast<size_t>(i) * sizeof(object), sizeof(object));
+        DetectionRectangle rectangle;
+        if (!std::isfinite(object.score) || object.score < 0.0f || object.score > 1.0f ||
+            !MapDetectionRectangle(geometry, header.coordW, header.coordH, object.x1, object.y1, object.x2, object.y2, rectangle)) {
+            continue;
+        }
 
         vision_msgs::msg::Detection2D d;
         d.header = arr.header;
-        d.bbox.center.position.x = (o.x1 + o.x2) * 0.5;
-        d.bbox.center.position.y = (o.y1 + o.y2) * 0.5;
-        d.bbox.size_x = o.x2 - o.x1;
-        d.bbox.size_y = o.y2 - o.y1;
+        d.bbox.center.position.x = (rectangle.x1 + rectangle.x2) * 0.5;
+        d.bbox.center.position.y = (rectangle.y1 + rectangle.y2) * 0.5;
+        d.bbox.size_x = rectangle.x2 - rectangle.x1;
+        d.bbox.size_y = rectangle.y2 - rectangle.y1;
 
         vision_msgs::msg::ObjectHypothesisWithPose hyp;
-        hyp.hypothesis.class_id = std::to_string(o.classId);
-        hyp.hypothesis.score = o.score;
+        hyp.hypothesis.class_id = std::to_string(object.classId);
+        hyp.hypothesis.score = object.score;
         d.results.push_back(hyp);
 
         arr.detections.push_back(std::move(d));
@@ -259,7 +333,7 @@ void StereoPublisher::Loop()
         }
         PublishColor(payload.color);
         PublishDepth(payload.depth);
-        PublishDetections(payload.seg);
+        PublishDetections(payload.seg, m_detectionSourceRight ? payload.right : payload.color);
     }
 }
 

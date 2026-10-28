@@ -1,11 +1,12 @@
 cmake_minimum_required(VERSION 3.10)
-project(movesense_x95_ros2)
+project(movesense_x95_ros2 VERSION 0.5.2)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
+find_package(rcl_interfaces REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(vision_msgs REQUIRED)
@@ -14,7 +15,9 @@ find_package(tf2 REQUIRED)
 find_package(tf2_ros REQUIRED)
 
 find_package(OpenCV REQUIRED)
-find_package(MoveSense_X95_SDK REQUIRED)
+find_package(MoveSense_X95_SDK 0.5.2 REQUIRED)
+
+include(cmake/MoveSenseX95Core.cmake)
 
 add_executable(${PROJECT_NAME}
   src/movesense_x95_ros2.cpp
@@ -34,6 +37,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 
 ament_target_dependencies(${PROJECT_NAME}
   rclcpp
+  rcl_interfaces
   sensor_msgs
   std_msgs
   vision_msgs
@@ -43,7 +47,7 @@ ament_target_dependencies(${PROJECT_NAME}
 )
 
 target_link_libraries(${PROJECT_NAME}
-  MoveSense::X95_SDK
+  ${MOVESENSE_X95_CORE_TARGET}
   ${OpenCV_LIBS}
 )
 
@@ -52,6 +56,14 @@ install(TARGETS ${PROJECT_NAME}
 )
 
 install(DIRECTORY launch
+  DESTINATION share/${PROJECT_NAME}
+)
+
+install(DIRECTORY config
+  DESTINATION share/${PROJECT_NAME}
+)
+
+install(FILES README.md README_CN.md VERSION LICENSE NOTICE
   DESTINATION share/${PROJECT_NAME}
 )
 

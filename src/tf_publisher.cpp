@@ -49,7 +49,8 @@ TfPublisher::TfPublisher() {}
 
 TfPublisher::~TfPublisher() {}
 
-bool TfPublisher::Publish(rclcpp::Node::SharedPtr node, const CameraConfig& cfg, const StereoCalib& calib, bool colorFrameUsed, bool isPassive, int cameraType)
+bool TfPublisher::Publish(
+    rclcpp::Node::SharedPtr node, const CameraConfig& cfg, const StereoCalib& calib, bool colorFrameUsed, bool isPassive, int cameraType)
 {
     if (node == nullptr) {
         RCLCPP_ERROR(Logger(), "[TfPublisher] Publish null argument");
@@ -75,6 +76,7 @@ bool TfPublisher::Publish(rclcpp::Node::SharedPtr node, const CameraConfig& cfg,
         RCLCPP_WARN(Logger(), "[TfPublisher] invalid baseline (%.4f m); right camera TF not published", baselineM);
     }
 
+    const bool colorFrameAvailable = colorFrameUsed && calib.HasColorExtrinsic();
     if (colorFrameUsed) {
         if (calib.HasColorExtrinsic()) {
             const std::array<double, 3>& treg = calib.ColorTregMm();
@@ -87,19 +89,24 @@ bool TfPublisher::Publish(rclcpp::Node::SharedPtr node, const CameraConfig& cfg,
         RCLCPP_WARN(Logger(), "[TfPublisher] color frame not used (color stream off and depth not registered); color TF not published");
     }
 
-    const bool imuOnColor = (cameraType == 0);
-    const bool imuAvailable = imuOnColor ? calib.HasColorImuExtrinsic() : calib.HasImuExtrinsic();
+    bool imuOnColor = false;
+    const bool imuAvailable = calib.SelectImuCalibration(cameraType, imuOnColor);
     const std::string& imuParent = imuOnColor ? cfg.colorFrameId : cfg.cam1FrameId;
 
-    if (imuAvailable && imuOnColor && !colorFrameUsed) {
-        RCLCPP_WARN(Logger(), "[TfPublisher] IMU is calibrated against the color camera but the color frame is not in the tree; IMU TF not published");
-    } else if (imuAvailable) {
-        const std::array<double, 9>& r = imuOnColor ? calib.ColorImuRotation() : calib.ImuRotation();
-        const std::array<double, 3>& t = imuOnColor ? calib.ColorImuTranslationMm() : calib.ImuTranslationMm();
+    std::array<double, 9> rectifiedRotation;
+    std::array<double, 3> rectifiedTranslationMm;
+    const bool transformAvailable = calib.GetRectifiedImuTransform(imuOnColor, rectifiedRotation, rectifiedTranslationMm);
+    if (imuAvailable && imuOnColor && !colorFrameAvailable) {
+        RCLCPP_WARN(
+            Logger(), "[TfPublisher] IMU is calibrated against the color camera but the color frame is not in the tree; IMU TF not published");
+    } else if (imuAvailable && transformAvailable) {
+        const std::array<double, 9>& r = rectifiedRotation;
+        const std::array<double, 3>& t = rectifiedTranslationMm;
 
         tf2::Matrix3x3 rot(r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[8]);
         tf2::Quaternion q;
         rot.getRotation(q);
+        q.normalize();
 
         transforms.push_back(MakeTransform(stamp, imuParent, cfg.imuFrameId, t[0] / 1000.0, t[1] / 1000.0, t[2] / 1000.0, q));
         RCLCPP_INFO(Logger(), "[TfPublisher] IMU frame attached to %s", imuParent.c_str());

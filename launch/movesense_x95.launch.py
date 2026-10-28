@@ -17,8 +17,10 @@ from launch_ros.parameter_descriptions import ParameterValue
 ARGS = [
     # connection / time
     ('camera_ip', '192.168.1.70', str),
-    ('align_time_on_start', 'false', bool),   # run one NTP time alignment (alignTimeToHost) on startup
-    ('first_frame_wait_ms', '5000', int),     # block Init until the first frame arrives, then read calibration (0 = do not wait)
+    ('align_time_on_start', 'true', bool),
+    ('connection_probe', 'true', bool),
+    ('trigger_mode', '0', int),
+    ('first_frame_wait_ms', '5000', int),
     # frame / resolution: each stream is 1280x960 or 640x480 only.
     # Color is independent of the stereo/depth pipeline; downsample_mode only affects stereo and depth:
     #   stereo 640  + depth 640  -> pre or post, both valid
@@ -57,9 +59,9 @@ ARGS = [
     ('color_min_gain_x', '1', int),
     # projector / depth options
     ('doe_power', '255', int),                # DOE 0..255 (0 = off); -1 = keep; A/AP only
-    ('registration', '1', int),               # 1 = on / 0 = off / -1 = keep; A/AP only
+    ('registration', '1', int),
     # imu calib export
-    ('imu_calib_dir', '', str),               # output dir for stereo-IMU extrinsics XMLs (empty = skip)
+    ('imu_calib_dir', '', str),
     # topics
     ('cam0_topic', '/movesense/right/image_rect_raw', str),
     ('cam1_topic', '/movesense/left/image_rect_raw', str),
@@ -73,14 +75,13 @@ ARGS = [
     ('publish_tf', 'true', bool),                                  # broadcast the static TF tree (turn off when a URDF provides it)
     ('base_frame_id', 'movesense_link', str),                      # tree root
     ('cam0_frame_id', 'movesense_infra2_optical_frame', str),      # right eye
-    ('cam1_frame_id', 'movesense_infra1_optical_frame', str),      # left eye = reference frame of all calibration
+    ('cam1_frame_id', 'movesense_infra1_optical_frame', str),
     ('color_frame_id', 'movesense_color_optical_frame', str),
-    ('det_frame_id', 'movesense_color_optical_frame', str),
+    ('det_frame_id', '', str),
     ('imu_frame_id', 'movesense_imu_frame', str),
     # roi: crop window per stream, cut on the camera before sending (depth cannot be cropped).
     # Coordinates are 0-based pixels in that stream's current output size (after downsampling):
     #   window = [x1,x2) x [y1,y2), x1<x2, y1<y2, at least 16x16, all four values even.
-    # Needs camera firmware with ROI support; an enabled ROI the camera rejects stops the node.
     ('roi_left_raw_enable', 'false', bool),
     ('roi_left_raw_x1', '0', int),
     ('roi_left_raw_y1', '0', int),
