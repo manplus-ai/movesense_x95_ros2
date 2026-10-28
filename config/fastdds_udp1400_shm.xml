@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Copyright (c) 2026 Humanplus Intelligent Robotics Technology Co.,Ltd. All rights reserved. -->
+<profiles xmlns="http://www.eprosima.com/XMLSchemas/fastRTPS_Profiles">
+  <transport_descriptors>
+    <transport_descriptor>
+      <transport_id>x95_udp1400</transport_id>
+      <type>UDPv4</type>
+      <maxMessageSize>1400</maxMessageSize>
+    </transport_descriptor>
+    <transport_descriptor>
+      <transport_id>x95_shm</transport_id>
+      <type>SHM</type>
+      <segment_size>33554432</segment_size>
+    </transport_descriptor>
+  </transport_descriptors>
+  <participant profile_name="participant_profile" is_default_profile="true">
+    <rtps>
+      <userTransports>
+        <transport_id>x95_udp1400</transport_id>
+        <transport_id>x95_shm</transport_id>
+      </userTransports>
+      <useBuiltinTransports>false</useBuiltinTransports>
+    </rtps>
+  </participant>
+</profiles>

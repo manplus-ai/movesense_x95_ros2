@@ -3,7 +3,7 @@
 
 #pragma once
 
-#include "movesense_x95_ros2/camera_config.h"
+#include "movesense_x95/camera_config.h"
 #include "movesense_x95_ros2/stereo_calib.h"
 
 #include <memory>
@@ -12,12 +12,15 @@
 
 namespace movesense_x95_ros2 {
 
+using movesense_x95::CameraConfig;
+
 class TfPublisher {
 public:
     TfPublisher();
     ~TfPublisher();
 
-    bool Publish(rclcpp::Node::SharedPtr node, const CameraConfig& cfg, const StereoCalib& calib, bool colorFrameUsed, bool isPassive, int cameraType);
+    bool Publish(
+        rclcpp::Node::SharedPtr node, const CameraConfig& cfg, const StereoCalib& calib, bool colorFrameUsed, bool isPassive, int cameraType);
 
 private:
     std::shared_ptr<tf2_ros::StaticTransformBroadcaster> m_broadcaster;

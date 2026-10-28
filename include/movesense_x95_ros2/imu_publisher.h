@@ -3,8 +3,8 @@
 
 #pragma once
 
-#include "movesense_x95_ros2/common.h"
-#include "movesense_x95_ros2/thread_safe_queue.h"
+#include "movesense_x95/common.h"
+#include "movesense_x95/thread_safe_queue.h"
 
 #include <atomic>
 #include <rclcpp/rclcpp.hpp>
@@ -13,6 +13,9 @@
 #include <thread>
 
 namespace movesense_x95_ros2 {
+
+using movesense_x95::ImuQueue;
+using movesense_x95::ImuSample;
 
 class ImuPublisher {
 public:
